@@ -71,8 +71,18 @@ function shouldSkipSection(section) {
 // Parse command line arguments
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
-const SECTION_FILTER = args.includes('--section') ? parseInt(args[args.indexOf('--section') + 1]) : null;
 const LIMIT = args.includes('--limit') ? parseInt(args[args.indexOf('--limit') + 1]) : null;
+
+// Parse section filter - supports single section or comma-separated list
+// Examples: --section 114050 or --section 114050,114241,114242
+let SECTION_FILTER = null;
+if (args.includes('--section')) {
+  const sectionArg = args[args.indexOf('--section') + 1];
+  if (sectionArg) {
+    SECTION_FILTER = sectionArg.split(',').map(s => parseInt(s.trim())).filter(s => !isNaN(s));
+    if (SECTION_FILTER.length === 0) SECTION_FILTER = null;
+  }
+}
 
 // TestRail API Client
 class TestRailClient {
@@ -286,15 +296,30 @@ class XrayClient {
     return response.json();
   }
 
-  async waitForJob(jobId, maxWait = 60000) {
+  async waitForJob(jobId, maxWait = 300000) {
+    // Increased timeout to 5 minutes (300000ms) for larger batches
     const start = Date.now();
+    let lastProgress = '';
+
     while (Date.now() - start < maxWait) {
       const status = await this.checkJobStatus(jobId);
+
       if (status.status === 'successful') return status;
       if (status.status === 'failed') throw new Error(`Job failed: ${JSON.stringify(status)}`);
-      await new Promise(r => setTimeout(r, 2000));
+
+      // Log progress if changed
+      if (status.progress && status.progress.length > 0) {
+        const currentProgress = status.progress[status.progress.length - 1];
+        if (currentProgress !== lastProgress) {
+          console.log(`      Progress: ${status.progressValue ? Math.round(status.progressValue * 100) + '%' : 'working...'}`);
+          lastProgress = currentProgress;
+        }
+      }
+
+      // Wait 3 seconds between checks
+      await new Promise(r => setTimeout(r, 3000));
     }
-    throw new Error('Job timeout');
+    throw new Error(`Job timeout after ${maxWait / 1000} seconds`);
   }
 
   async addTestsToFolder(testIssueIds, path, projectId) {
@@ -483,7 +508,9 @@ async function migrate() {
   console.log('='.repeat(60));
 
   if (DRY_RUN) console.log('\n*** DRY RUN MODE - No changes will be made ***\n');
-  if (SECTION_FILTER) console.log(`Filtering to section ID: ${SECTION_FILTER}\n`);
+  if (SECTION_FILTER) {
+    console.log(`Filtering to section IDs: ${SECTION_FILTER.join(', ')}\n`);
+  }
   if (LIMIT) console.log(`Limiting to ${LIMIT} tests\n`);
 
   // Validate environment variables
@@ -519,7 +546,19 @@ async function migrate() {
 
   // Get test cases from TestRail
   console.log('Fetching test cases from TestRail...');
-  let testCases = await testrail.getAllCases(TESTRAIL_PROJECT_ID, TESTRAIL_SUITE_ID, SECTION_FILTER);
+  let testCases = [];
+
+  if (SECTION_FILTER && SECTION_FILTER.length > 0) {
+    // Fetch test cases from each specified section
+    for (const sectionId of SECTION_FILTER) {
+      console.log(`  Fetching from section ${sectionId}...`);
+      const sectionCases = await testrail.getAllCases(TESTRAIL_PROJECT_ID, TESTRAIL_SUITE_ID, sectionId);
+      testCases = testCases.concat(sectionCases);
+    }
+  } else {
+    // Fetch all test cases
+    testCases = await testrail.getAllCases(TESTRAIL_PROJECT_ID, TESTRAIL_SUITE_ID, null);
+  }
   console.log(`Found ${testCases.length} test cases\n`);
 
   if (LIMIT) {
@@ -658,8 +697,8 @@ async function migrate() {
           console.log(`    Errors: ${status.result.errors.length}`);
         }
 
-        // Rate limiting - wait between batches
-        await new Promise(r => setTimeout(r, 1000));
+        // Rate limiting - wait between batches (increased to 2 seconds)
+        await new Promise(r => setTimeout(r, 2000));
 
       } catch (error) {
         console.log(`    Error: ${error.message}`);
