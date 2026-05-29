@@ -49,11 +49,15 @@ Performs the full migration of all test cases from TestRail to Xray. Creates fol
 node migrate-to-xray.js
 ```
 
-### Migrate Specific Section Only
-Migrates tests from a single TestRail section (folder) only. Useful for incremental migrations or testing specific areas. Use section IDs from the table below.
+### Migrate Specific Section(s)
+Migrates tests from one or more TestRail sections (folders). Supports single section or comma-separated list. Use section IDs from the table below.
 
 ```bash
+# Single section
 node migrate-to-xray.js --section 114050
+
+# Multiple sections
+node migrate-to-xray.js --section 114050,114241,114258
 ```
 
 ### Migrate Limited Number of Tests
@@ -64,10 +68,17 @@ node migrate-to-xray.js --limit 10
 ```
 
 ### Combine Options
-Options can be combined for more control. For example, preview a small batch from a specific section before committing to the full migration.
+Options can be combined for more control. For example, preview a small batch from specific sections before committing to the full migration.
 
 ```bash
+# Preview single section with limit
 node migrate-to-xray.js --section 114242 --limit 5 --dry-run
+
+# Preview multiple sections
+node migrate-to-xray.js --section 114050,114241,114258 --dry-run
+
+# Migrate multiple sections with limit
+node migrate-to-xray.js --section 114050,114241 --limit 20
 ```
 
 ## Migration Rules
