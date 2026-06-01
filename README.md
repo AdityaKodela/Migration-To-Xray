@@ -1,6 +1,15 @@
 # TestRail to Xray Migration Tool
 
-Migrates test cases from TestRail to Xray (Jira Cloud) with native test steps.
+A Node.js tool that automates the migration of test cases from TestRail to Xray (Jira Cloud).
+
+## Overview
+
+This tool reads test cases from a TestRail project and creates corresponding tests in Xray with:
+- Native test steps (not plain text descriptions)
+- Proper folder structure matching TestRail sections
+- Automatic duplicate detection to prevent re-importing existing tests
+- Round-robin assignment distribution among team members
+- Labels for easy filtering and organization
 
 ## Setup
 
@@ -10,16 +19,16 @@ Add to `~/.zshrc`:
 
 ```bash
 # TestRail
-export TESTRAIL_URL="https://sonian.testrail.com"
-export TESTRAIL_EMAIL="akodela@barracuda.com"
-export TESTRAIL_API_KEY="your-api-key"
+export TESTRAIL_URL="https://sonian.testrail.com"    # Your TestRail instance URL
+export TESTRAIL_EMAIL="your-email"                    # TestRail login email
+export TESTRAIL_API_KEY="your-api-key"               # TestRail API key (Settings > API Keys)
 
 # Xray
-export XRAY_CLIENT_ID="your-client-id"
-export XRAY_CLIENT_SECRET="your-client-secret"
+export XRAY_CLIENT_ID="your-client-id"               # Xray Cloud API client ID
+export XRAY_CLIENT_SECRET="your-client-secret"       # Xray Cloud API client secret
 
-# Jira (for duplicate detection)
-export JIRA_API_TOKEN="your-jira-api-token"
+# Jira
+export JIRA_API_TOKEN="your-jira-api-token"          # Jira API token for duplicate detection
 ```
 
 To create a Jira API token: https://id.atlassian.com/manage-profile/security/api-tokens
@@ -29,13 +38,13 @@ Then run: `source ~/.zshrc`
 ### 2. Install Dependencies
 
 ```bash
-cd /Users/akodela/testrail-mcp-server
 npm install
 ```
 
 ## Usage
 
 ### Preview Migration (Dry Run)
+
 Simulates the migration without creating any tests in Xray. Use this to verify the migration will work correctly, see how many tests will be created, and preview the folder structure. No changes are made to Xray.
 
 ```bash
@@ -43,6 +52,7 @@ node migrate-to-xray.js --dry-run
 ```
 
 ### Migrate All Tests
+
 Performs the full migration of all test cases from TestRail to Xray. Creates folder structure, imports tests with native steps, and assigns tests to appropriate folders. This may take 30-60 minutes depending on API rate limits.
 
 ```bash
@@ -50,17 +60,19 @@ node migrate-to-xray.js
 ```
 
 ### Migrate Specific Section(s)
-Migrates tests from one or more TestRail sections (folders). Supports single section or comma-separated list. Use section IDs from the table below.
+
+Migrates tests from one or more TestRail sections (folders). Supports single section or comma-separated list.
 
 ```bash
 # Single section
-node migrate-to-xray.js --section 114050
+node migrate-to-xray.js --section 114241
 
 # Multiple sections
-node migrate-to-xray.js --section 114050,114241,114258
+node migrate-to-xray.js --section 114241,114258,114261
 ```
 
 ### Migrate Limited Number of Tests
+
 Restricts the migration to the first N test cases. Perfect for testing the migration process with a small batch before running the full migration.
 
 ```bash
@@ -68,6 +80,7 @@ node migrate-to-xray.js --limit 10
 ```
 
 ### Combine Options
+
 Options can be combined for more control. For example, preview a small batch from specific sections before committing to the full migration.
 
 ```bash
@@ -75,11 +88,29 @@ Options can be combined for more control. For example, preview a small batch fro
 node migrate-to-xray.js --section 114242 --limit 5 --dry-run
 
 # Preview multiple sections
-node migrate-to-xray.js --section 114050,114241,114258 --dry-run
+node migrate-to-xray.js --section 114241,114258 --dry-run
 
 # Migrate multiple sections with limit
-node migrate-to-xray.js --section 114050,114241 --limit 20
+node migrate-to-xray.js --section 114241,114258 --limit 20
 ```
+
+### Fix Folder Assignments
+
+If tests are not appearing in the correct Xray Test Repository folders, use this script to fix them. It reads the folder information from each test's description and moves tests to their correct folders.
+
+```bash
+# Preview what will be fixed (no changes made)
+node sync-xray-folders.js --dry-run
+
+# Fix all folder assignments
+node sync-xray-folders.js
+```
+
+The script:
+- Fetches all tests with the `testrail-migrated` label
+- Extracts the `Folder:` path from each test's description
+- Creates folder hierarchy in Xray if needed
+- Moves tests to correct folders in batches of 50
 
 ## Migration Rules
 
@@ -93,9 +124,10 @@ node migrate-to-xray.js --section 114050,114241 --limit 20
 | 6 | Includes `Migrated from TestRail` in description |
 | 7 | Auto-generates expected results if missing |
 | 8 | Adds folder name as label (kebab-case) |
-| 9 | Skips duplicates (checks existing tests before migrating) |
-| 10 | Assigns priority P4 to all tickets |
-| 11 | Distributes tickets equally among 4 assignees (round-robin) |
+| 9 | Adds `testrail-migrated` label to all migrated tests |
+| 10 | Skips duplicates (checks existing tests before migrating) |
+| 11 | Assigns priority P4 to all tickets |
+| 12 | Distributes tickets equally among assignees (round-robin) |
 
 ## Assignees
 
@@ -123,67 +155,30 @@ The following folders are automatically skipped during migration:
 Edit these constants in `migrate-to-xray.js`:
 
 ```javascript
-const TESTRAIL_PROJECT_ID = 72;    // Data Inspector
-const TESTRAIL_SUITE_ID = 651;     // Master
-const JIRA_PROJECT_KEY = 'CODEUS';
-const JIRA_PROJECT_ID = '16433';
-const DEFAULT_PRIORITY = 'P4';     // Priority for all tickets
+const TESTRAIL_PROJECT_ID = 72;    // TestRail project ID (Data Inspector)
+const TESTRAIL_SUITE_ID = 651;     // TestRail suite ID (Master)
+const JIRA_PROJECT_KEY = 'CODEUS'; // Jira project key for created tests
+const JIRA_PROJECT_ID = '16433';   // Jira project ID (numeric)
+const DEFAULT_PRIORITY = 'P4';     // Priority assigned to all tickets
 ```
 
 To modify assignees, update the `ASSIGNEES` array in the script.
+
+Edit these constants in `sync-xray-folders.js`:
+
+```javascript
+const JIRA_PROJECT_KEY = 'CODEUS';              // Jira project key to search for tests
+const JIRA_PROJECT_ID = '16433';                // Jira project ID (numeric)
+const JIRA_CLOUD_URL = 'https://cuda.atlassian.net'; // Jira Cloud instance URL
+```
 
 ## Section IDs (Data Inspector)
 
 | ID | Folder |
 |----|--------|
-| 114050 | Redaction Reveal |
 | 114241 | Multi Tenant |
 | 114242 | Multi Tenant/Login |
 | 114258 | Detections |
 | 114261 | Audit Log |
 | 114262 | Scan log |
 | 114266 | Policy Engine |
-
-## Sample Output
-
-```
-============================================================
-TestRail to Xray Migration
-============================================================
-
-Authenticating with Xray...
-Authenticated successfully
-
-Fetching already migrated tests from Xray...
-  Scanned 100 existing tests...
-Found 156 already migrated tests
-
-Fetching test cases from TestRail...
-  Fetched 250 test cases...
-Found 1955 test cases
-
-Skipping 156 already migrated tests
-Remaining tests to migrate: 1799
-
-Skipping folder: CODEUS-5000 — Renew the Let's Encrypt (3 tests)
-  Reason: Folder name contains "CODEUS"
-
-Processing: /Redaction Reveal (5 tests)
-  Importing batch 1/1 (5 tests)...
-    Created 5 tests
-  Adding 5 tests to folder: /Redaction Reveal
-  Successfully added all tests to folder
-
-============================================================
-Migration Summary
-============================================================
-Success:              1750
-Failed:               0
-Skipped (folders):    3 folders, 49 tests
-Skipped (duplicates): 156
-```
-
-## Sample Tests Created
-
-- CODEUS-5160 - Redaction Reveal (with existing steps)
-- CODEUS-5164 - Multi Tenant/Login (with generated steps)
