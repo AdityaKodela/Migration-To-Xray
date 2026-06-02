@@ -300,11 +300,24 @@ class XrayClient {
     // Increased timeout to 5 minutes (300000ms) for larger batches
     const start = Date.now();
     let lastProgress = '';
+    let lastStatus = '';
+    let lastStatusSnapshot = null;
 
     while (Date.now() - start < maxWait) {
       const status = await this.checkJobStatus(jobId);
+      lastStatusSnapshot = status;
+
+      // Diagnostic: log whenever the top-level status string changes
+      if (status.status !== lastStatus) {
+        console.log(`      [job ${jobId}] status="${status.status}" progressValue=${status.progressValue}`);
+        lastStatus = status.status;
+      }
 
       if (status.status === 'successful') return status;
+      // Xray reports per-element validation failures as "unsuccessful" — job
+      // finished, but result.errors has the details. Return so the caller can
+      // surface them instead of treating it as a timeout.
+      if (status.status === 'unsuccessful') return status;
       if (status.status === 'failed') throw new Error(`Job failed: ${JSON.stringify(status)}`);
 
       // Log progress if changed
@@ -319,6 +332,8 @@ class XrayClient {
       // Wait 3 seconds between checks
       await new Promise(r => setTimeout(r, 3000));
     }
+    // Diagnostic: dump the last status payload so we can see what Xray returned
+    console.log(`      [job ${jobId}] timed out — last status payload: ${JSON.stringify(lastStatusSnapshot)}`);
     throw new Error(`Job timeout after ${maxWait / 1000} seconds`);
   }
 
@@ -644,10 +659,14 @@ async function migrate() {
       const steps = parseSteps(tc.custom_steps, tc.custom_expected, tc.title);
 
       const assignee = getNextAssignee();
+      // Xray rejects summaries containing newlines — join multi-line TestRail
+      // titles with " - " so the sub-clause is preserved.
+      const summary = tc.title.replace(/\s*[\r\n]+\s*/g, ' - ').trim();
+
       return {
         testtype: 'Manual',
         fields: {
-          summary: tc.title,
+          summary,
           project: { key: JIRA_PROJECT_KEY },
           description: `Migrated from TestRail\n\nTestCase Id: C${tc.id}\nFolder: ${folderPath.replace(/^\//, '')}`,
           labels: ['testrail-migrated', folderLabel].filter(l => l),
