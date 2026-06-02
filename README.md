@@ -11,6 +11,14 @@ This tool reads test cases from a TestRail project and creates corresponding tes
 - Round-robin assignment distribution among team members
 - Labels for easy filtering and organization
 
+The repo ships three scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `migrate-to-xray.js` | Migrate test cases from TestRail to Xray |
+| `sync-xray-folders.js` | Repair Xray folder assignments after migration |
+| `validate-folder-counts.js` | Compare per-folder test counts between TestRail and Xray |
+
 ## Setup
 
 ### 1. Environment Variables
@@ -112,22 +120,45 @@ The script:
 - Creates folder hierarchy in Xray if needed
 - Moves tests to correct folders in batches of 50
 
+### Validate Folder Counts
+
+Compares direct test counts per folder between TestRail (source) and Xray (migrated) and prints a comparison table. Run this after a migration batch to confirm every folder reconciled. Read-only — does not write to Xray or Jira.
+
+```bash
+# Tabular comparison of every folder
+node validate-folder-counts.js
+
+# Drill into a single folder's per-TestCase-ID diff
+node validate-folder-counts.js --investigate "/Redaction Reveal"
+
+# Drill into every folder with a non-zero diff
+node validate-folder-counts.js --investigate-all
+```
+
+Each row is marked `OK`, `MISMATCH (+N/-N)`, or `SKIPPED (reason)`. SKIPPED rows use the same exclusion rules as the migration script (CODEUS-named, Auto-imported, Auto-generated). Counts are direct — tests in subfolders are not rolled up to the parent.
+
+`--investigate` mode prints the per-`TestCase Id` diff for a folder:
+- **Xray-only** — Test IDs present in Xray but no longer in this TestRail section (deleted, or moved to another section — the script reports which)
+- **TestRail-only** — Cases in this TestRail section that haven't been migrated yet
+- **Xray tests missing TestCase Id** — Migrated tests whose description doesn't contain a parseable `TestCase Id:` line
+
 ## Migration Rules
 
 | # | Rule |
 |---|------|
 | 1 | Summary = test title only |
-| 2 | Creates Test Repository folders matching TestRail structure |
-| 3 | Description in plain text (no markdown) |
-| 4 | Includes `TestCase Id: C{id}` in description |
-| 5 | Includes `Folder: {path}` in description |
-| 6 | Includes `Migrated from TestRail` in description |
-| 7 | Auto-generates expected results if missing |
-| 8 | Adds folder name as label (kebab-case) |
-| 9 | Adds `testrail-migrated` label to all migrated tests |
-| 10 | Skips duplicates (checks existing tests before migrating) |
-| 11 | Assigns priority P4 to all tickets |
-| 12 | Distributes tickets equally among assignees (round-robin) |
+| 2 | Newlines in TestRail titles are joined with ` - ` (Xray rejects multi-line summaries) |
+| 3 | Creates Test Repository folders matching TestRail structure |
+| 4 | Description in plain text (no markdown) |
+| 5 | Includes `TestCase Id: C{id}` in description |
+| 6 | Includes `Folder: {path}` in description |
+| 7 | Includes `Migrated from TestRail` in description |
+| 8 | Auto-generates expected results if missing |
+| 9 | Adds folder name as label (kebab-case) |
+| 10 | Adds `testrail-migrated` label to all migrated tests |
+| 11 | Skips duplicates (checks existing tests before migrating) |
+| 12 | Assigns priority P4 to all tickets |
+| 13 | Distributes tickets equally among assignees (round-robin) |
 
 ## Assignees
 
@@ -171,6 +202,17 @@ const JIRA_PROJECT_KEY = 'CODEUS';              // Jira project key to search fo
 const JIRA_PROJECT_ID = '16433';                // Jira project ID (numeric)
 const JIRA_CLOUD_URL = 'https://cuda.atlassian.net'; // Jira Cloud instance URL
 ```
+
+Edit these constants in `validate-folder-counts.js`:
+
+```javascript
+const TESTRAIL_PROJECT_ID = 72;                 // TestRail project ID to validate against
+const TESTRAIL_SUITE_ID = 651;                  // TestRail suite ID
+const JIRA_PROJECT_KEY = 'CODEUS';              // Jira project key holding migrated tests
+const JIRA_CLOUD_URL = 'https://cuda.atlassian.net'; // Jira Cloud instance URL
+```
+
+The `shouldSkipSection` function in this script must mirror the one in `migrate-to-xray.js`. If you change exclusion rules in one, change them in the other so the table's `SKIPPED` markers stay accurate.
 
 ## Section IDs (Data Inspector)
 
